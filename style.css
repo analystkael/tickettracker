@@ -641,9 +641,6 @@ tbody td:first-child {
 }
 
 td:nth-child(3) {
-  font-family: var(--mono);
-  font-weight: 700;
-  color: var(--white);
   text-align: center;
 }
 
@@ -653,6 +650,39 @@ td:nth-child(3) {
   padding: 44px !important;
   font-size: 14px;
 }
+
+/* ─── Ticket Display ───────────────────────────────── */
+.ticket-current {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--white);
+}
+
+.ticket-original {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 1px;
+}
+
+.win-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-br);
+  border-radius: 99px;
+  padding: 1px 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+  letter-spacing: .02em;
+}
+
+tr.row-empty td { opacity: .35; }
+tr.row-empty .ticket-current { color: var(--text-dim); }
 
 /* ─── Probability Bar ──────────────────────────────── */
 .prob-cell { display: flex; align-items: center; gap: 10px; }

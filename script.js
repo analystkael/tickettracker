@@ -1,17 +1,19 @@
 /* ═══════════════════════════════════════════════════════
-   Raffle Draw — script.js  v5.1
+   Raffle Draw — script.js  v5.2
    - Self-calculates from "List Ticket" sheet
-   - Winner reveal overlay (click to continue)
+   - Winner loses 1 ticket per win (can win again if > 0)
+   - Table updates live after each draw
+   - Winner reveal overlay
    ═══════════════════════════════════════════════════════ */
 
-let participants = [];
-let ticketPool   = [];
+let participants = [];   // [{name, tickets, original}]
+let ticketPool   = [];   // flat: name repeated by current ticket count
 let winnerCount  = 1;
-let winners      = [];
+let winners      = [];   // [{name, rank}] — same name can appear multiple times
 let rolling      = false;
-let revealResolve = null;  // promise resolve for reveal dismiss
+let revealResolve = null;
 
-console.log('[Raffle] script.js v5.1 loaded');
+console.log('[Raffle] script.js v5.2 loaded');
 
 // ── Load Excel ────────────────────────────────────────
 async function loadExcel() {
@@ -46,8 +48,7 @@ function parseWorkbook(wb) {
   const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
 
   const headerRow  = raw[1] || [];
-  let firstDateCol = -1;
-  let lastDateCol  = -1;
+  let firstDateCol = -1, lastDateCol = -1;
 
   for (let c = 2; c < headerRow.length; c++) {
     const hdr = headerRow[c];
@@ -70,15 +71,11 @@ function parseWorkbook(wb) {
     const name = cleanName(row[1]);
     if (!name) continue;
 
-    const calc    = calcTickets(row, firstDateCol, lastDateCol);
+    const calc = calcTickets(row, firstDateCol, lastDateCol);
     if (calc.total <= 0) continue;
 
-    result.push({
-      name,
-      tickets: Math.round(calc.total),
-      deposits: calc.deposits,
-      streakBonus: calc.bonus
-    });
+    const t = Math.round(calc.total);
+    result.push({ name, tickets: t, original: t });
   }
 
   console.log('[Raffle] ✅ Peserta:', result.length,
@@ -90,12 +87,7 @@ function parseWorkbook(wb) {
   }
 
   participants = result.sort((a, b) => b.tickets - a.tickets);
-
-  ticketPool = [];
-  participants.forEach(p => {
-    for (let i = 0; i < p.tickets; i++) ticketPool.push(p.name);
-  });
-
+  rebuildPool();
   renderStats();
   renderTable();
   enableDraw();
@@ -111,20 +103,38 @@ function cleanName(val) {
 function calcTickets(row, firstCol, lastCol) {
   let deposits = 0, streak = 0, bonus5 = 0, bonus10 = 0;
   for (let c = firstCol; c <= lastCol; c++) {
-    const v = Number(row[c]);
-    if (v === 1) {
+    if (Number(row[c]) === 1) {
       deposits++; streak++;
-      if (streak === 5)  bonus5++;
+      if (streak === 5) bonus5++;
       if (streak === 10) bonus10++;
-    } else { streak = 0; }
+    } else streak = 0;
   }
   const bonus = (bonus5 * 5) + (bonus10 * 20);
   return { deposits, bonus, total: deposits + bonus };
 }
 
+// ── Pool Management ───────────────────────────────────
+function rebuildPool() {
+  ticketPool = [];
+  participants.forEach(p => {
+    for (let i = 0; i < p.tickets; i++) ticketPool.push(p.name);
+  });
+}
+
+function consumeTicket(name) {
+  const p = participants.find(x => x.name === name);
+  if (p && p.tickets > 0) {
+    p.tickets--;
+    // Remove one instance from pool
+    const idx = ticketPool.indexOf(name);
+    if (idx !== -1) ticketPool.splice(idx, 1);
+  }
+}
+
 // ── Render Stats ──────────────────────────────────────
 function renderStats() {
-  animNum('stat-peserta', participants.length);
+  const active = participants.filter(p => p.tickets > 0).length;
+  animNum('stat-peserta', active);
   animNum('stat-tiket', ticketPool.length);
   document.getElementById('stat-date-val').textContent =
     new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -132,7 +142,7 @@ function renderStats() {
 
 function animNum(id, target) {
   const el  = document.getElementById(id);
-  const dur = 800;
+  const dur = 600;
   const start = performance.now();
   (function tick(now) {
     const p = Math.min((now - start) / dur, 1);
@@ -146,24 +156,39 @@ function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
 // ── Render Table ──────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('table-body');
-  const total = ticketPool.length;
-  document.getElementById('table-note').textContent =
-    `${participants.length} peserta · ${total} tiket`;
+  const totalPool = ticketPool.length;
+  const active = participants.filter(p => p.tickets > 0).length;
 
-  tbody.innerHTML = participants.map((p, i) => {
-    const pct  = total > 0 ? ((p.tickets / total) * 100).toFixed(2) : '0.00';
-    const barW = total > 0 ? Math.min((p.tickets / participants[0].tickets) * 100, 100) : 0;
+  document.getElementById('table-note').textContent =
+    `${active} peserta aktif · ${totalPool} tiket tersisa`;
+
+  // Sort: by current tickets desc, then original desc
+  const sorted = [...participants].sort((a, b) => b.tickets - a.tickets || b.original - a.original);
+
+  tbody.innerHTML = sorted.map((p, i) => {
+    const pct  = totalPool > 0 ? ((p.tickets / totalPool) * 100).toFixed(2) : '0.00';
+    const barW = totalPool > 0 && sorted[0].tickets > 0
+      ? Math.min((p.tickets / sorted[0].tickets) * 100, 100) : 0;
+    const used = p.original - p.tickets;
+    const dimClass = p.tickets === 0 ? ' class="row-empty"' : '';
+    const winCount = winners.filter(w => w.name === p.name).length;
+
     return `
-      <tr id="row-${sanitize(p.name)}">
+      <tr id="row-${sanitize(p.name)}"${dimClass}>
         <td>${i + 1}</td>
-        <td>${escHtml(p.name)}</td>
-        <td>${p.tickets}</td>
+        <td>
+          ${escHtml(p.name)}
+          ${winCount > 0 ? '<span class="win-badge">' + winCount + 'x win</span>' : ''}
+        </td>
+        <td>
+          <span class="ticket-current">${p.tickets}</span><span class="ticket-original">/${p.original}</span>
+        </td>
         <td>
           <div class="prob-cell">
             <div class="prob-bar-bg">
               <div class="prob-bar-fill" style="width:${barW}%"></div>
             </div>
-            <span class="prob-text">${pct}%</span>
+            <span class="prob-text">${p.tickets > 0 ? pct + '%' : '—'}</span>
           </div>
         </td>
       </tr>`;
@@ -181,7 +206,7 @@ function enableDraw() {
 }
 
 function changeWinnerCount(delta) {
-  const max = Math.min(participants.length, 10);
+  const max = Math.min(participants.filter(p => p.tickets > 0).length, 10);
   winnerCount = Math.max(1, Math.min(winnerCount + delta, max));
   document.getElementById('winner-count').textContent = winnerCount;
 }
@@ -190,15 +215,8 @@ function changeWinnerCount(delta) {
 function startDraw() {
   if (rolling || ticketPool.length === 0) return;
 
-  const available = ticketPool.filter(n => !winners.includes(n));
-  if (available.length === 0) {
-    alert('Semua peserta sudah menang! Reset dulu ya.');
-    return;
-  }
-
-  const drawN = Math.min(winnerCount - winners.length, available.length);
-  if (drawN <= 0) {
-    alert('Pemenang sudah mencapai target. Reset untuk draw ulang.');
+  if (ticketPool.length === 0) {
+    alert('Semua tiket sudah habis! Reset untuk draw ulang.');
     return;
   }
 
@@ -209,12 +227,11 @@ function startDraw() {
   document.getElementById('draw-btn-text').textContent = 'Rolling…';
 
   showDrum();
-  drawSequence(available, drawN, 0, []);
+  drawSequence(winnerCount, 0);
 }
 
-async function drawSequence(pool, total, idx, newWinners) {
-  if (idx >= total) {
-    winners = [...winners, ...newWinners];
+async function drawSequence(total, idx) {
+  if (idx >= total || ticketPool.length === 0) {
     rolling = false;
     hideDrum();
     renderWinners();
@@ -223,11 +240,11 @@ async function drawSequence(pool, total, idx, newWinners) {
     const btn = document.getElementById('draw-btn');
     btn.classList.remove('rolling');
 
-    if (winners.length < participants.length) {
+    if (ticketPool.length > 0) {
       btn.disabled = false;
       document.getElementById('draw-btn-text').textContent = 'Draw Lagi!';
     } else {
-      document.getElementById('draw-btn-text').textContent = 'Selesai';
+      document.getElementById('draw-btn-text').textContent = 'Tiket Habis';
       btn.disabled = true;
     }
 
@@ -235,57 +252,57 @@ async function drawSequence(pool, total, idx, newWinners) {
     return;
   }
 
-  const available = pool.filter(n => !newWinners.includes(n));
-  if (available.length === 0) {
-    drawSequence(pool, total, total, newWinners);
-    return;
-  }
-
-  // Roll animation → pick winner
+  // Roll animation → weighted random pick from current pool
   const winner = await new Promise(resolve => {
-    rollAnimation(available, () => {
-      const picked = available[Math.floor(Math.random() * available.length)];
+    rollAnimation(() => {
+      const picked = ticketPool[Math.floor(Math.random() * ticketPool.length)];
       document.getElementById('drum-name').textContent = picked;
       resolve(picked);
     });
   });
 
-  newWinners.push(winner);
+  // Consume 1 ticket
+  consumeTicket(winner);
+  winners.push({ name: winner, rank: winners.length + 1 });
 
-  // Show reveal overlay
+  // Update displays
+  renderStats();
+  renderTable();
+
+  // Show reveal
   hideDrum();
   launchConfetti();
-  await showReveal(winner, winners.length + newWinners.length);
 
-  // Continue to next winner (re-show drum if more to go)
-  if (idx + 1 < total) showDrum();
-  drawSequence(pool, total, idx + 1, newWinners);
+  const p = participants.find(x => x.name === winner);
+  const remaining = p ? p.tickets : 0;
+  await showReveal(winner, winners.length, remaining);
+
+  // Continue
+  if (idx + 1 < total && ticketPool.length > 0) showDrum();
+  drawSequence(total, idx + 1);
 }
 
-// ── Winner Reveal Overlay ─────────────────────────────
-function showReveal(name, rank) {
+// ── Winner Reveal ─────────────────────────────────────
+function showReveal(name, rank, remaining) {
   const medals = ['🥇','🥈','🥉'];
   const p = participants.find(x => x.name === name);
-  const tickets = p ? p.tickets : 0;
-  const pct = ticketPool.length > 0 ? ((tickets / ticketPool.length) * 100).toFixed(2) : '0';
+  const orig = p ? p.original : 0;
 
   document.getElementById('reveal-tag').textContent = 'PEMENANG #' + rank;
   document.getElementById('reveal-medal').textContent = medals[rank - 1] || '🏆';
   document.getElementById('reveal-name').textContent = name;
-  document.getElementById('reveal-info').textContent = tickets + ' tiket · peluang ' + pct + '%';
+  document.getElementById('reveal-info').textContent =
+    'Sisa tiket: ' + remaining + '/' + orig;
 
   const el = document.getElementById('reveal');
   el.classList.add('visible');
 
-  // Reset animation
   const content = el.querySelector('.reveal-content');
   content.style.animation = 'none';
-  content.offsetHeight; // reflow
+  content.offsetHeight;
   content.style.animation = '';
 
-  return new Promise(resolve => {
-    revealResolve = resolve;
-  });
+  return new Promise(resolve => { revealResolve = resolve; });
 }
 
 function dismissReveal() {
@@ -294,10 +311,7 @@ function dismissReveal() {
   setTimeout(() => {
     el.classList.remove('visible');
     el.style.opacity = '';
-    if (revealResolve) {
-      revealResolve();
-      revealResolve = null;
-    }
+    if (revealResolve) { revealResolve(); revealResolve = null; }
   }, 250);
 }
 
@@ -312,15 +326,17 @@ function hideDrum() {
   document.getElementById('drum-section').classList.remove('visible');
 }
 
-function rollAnimation(pool, callback) {
+function rollAnimation(callback) {
   const nameEl   = document.getElementById('drum-name');
+  const pool     = ticketPool.length > 0 ? ticketPool : participants.map(p => p.name);
+  const names    = [...new Set(pool)]; // unique names for visual variety
   const DURATION = 2500;
   const start    = performance.now();
 
   function frame(now) {
     const elapsed  = now - start;
     const progress = Math.min(elapsed / DURATION, 1);
-    nameEl.textContent = pool[Math.floor(Math.random() * pool.length)];
+    nameEl.textContent = names[Math.floor(Math.random() * names.length)];
     const interval = 50 + progress * 200;
     if (progress < 1) setTimeout(() => requestAnimationFrame(frame), interval);
     else callback();
@@ -336,16 +352,15 @@ function renderWinners() {
 
   const medals = ['🥇','🥈','🥉'];
   const list   = document.getElementById('winners-list');
-  list.innerHTML = winners.map((name, i) => {
-    const p       = participants.find(x => x.name === name);
-    const tickets = p ? p.tickets : 0;
-    const pct     = ticketPool.length > 0 ? ((tickets / ticketPool.length) * 100).toFixed(2) : '0';
+
+  list.innerHTML = winners.map((w, i) => {
+    const p = participants.find(x => x.name === w.name);
     return `
-      <div class="winner-card" style="animation-delay:${i * 0.12}s">
+      <div class="winner-card" style="animation-delay:${i * 0.1}s">
         <div class="winner-rank">${medals[i] || '🏆'}</div>
         <div class="winner-info">
-          <div class="winner-name">${escHtml(name)}</div>
-          <div class="winner-meta">${tickets} tiket · peluang ${pct}%</div>
+          <div class="winner-name">${escHtml(w.name)}</div>
+          <div class="winner-meta">Draw #${i + 1}</div>
         </div>
         <div class="winner-trophy">🎉</div>
       </div>`;
@@ -356,7 +371,8 @@ function renderWinners() {
 
 function highlightWinnerRows() {
   document.querySelectorAll('tbody tr').forEach(tr => tr.classList.remove('is-winner'));
-  winners.forEach(name => {
+  const winnerNames = [...new Set(winners.map(w => w.name))];
+  winnerNames.forEach(name => {
     const row = document.getElementById('row-' + sanitize(name));
     if (row) row.classList.add('is-winner');
   });
@@ -364,8 +380,12 @@ function highlightWinnerRows() {
 
 // ── Reset ─────────────────────────────────────────────
 function resetDraw() {
+  // Restore original tickets
+  participants.forEach(p => { p.tickets = p.original; });
   winners = [];
   rolling = false;
+
+  rebuildPool();
 
   document.getElementById('winners-section').classList.remove('visible');
   document.getElementById('drum-section').classList.remove('visible');
@@ -373,7 +393,8 @@ function resetDraw() {
   document.getElementById('reset-btn').classList.remove('visible');
   document.getElementById('reveal').classList.remove('visible');
 
-  document.querySelectorAll('tbody tr').forEach(tr => tr.classList.remove('is-winner'));
+  renderStats();
+  renderTable();
 
   const btn = document.getElementById('draw-btn');
   btn.disabled = false;
@@ -410,19 +431,16 @@ function launchConfetti() {
       p.tiltAngle += p.tiltSpeed;
       p.y += p.d + Math.sin(p.tiltAngle) * 0.5;
       const tilt = Math.sin(p.tiltAngle) * 12;
-
       if (frame > TOTAL * 0.6)
         p.alpha = Math.max(0, 1 - (frame - TOTAL * 0.6) / (TOTAL * 0.4));
-
       ctx.save();
       ctx.globalAlpha = p.alpha;
-      ctx.fillStyle   = p.color;
+      ctx.fillStyle = p.color;
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, p.r, p.r * 0.5, tilt * Math.PI / 180, 0, 2 * Math.PI);
       ctx.fill();
       ctx.restore();
     });
-
     frame++;
     if (frame < TOTAL) requestAnimationFrame(draw);
     else ctx.clearRect(0, 0, canvas.width, canvas.height);
