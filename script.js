@@ -1,10 +1,8 @@
 /* ═══════════════════════════════════════════════════════
-   Raffle Draw — script.js  v4
-   - Merges data from BOTH sheets:
-     1. Streak sheet  → pre-calculated TOTAL TIKET
-     2. List Ticket   → raw deposits (0/1) for self-calc
-   - Any participant found in either sheet is included
-   - Works with Lark / Google Sheets / Excel exports
+   Raffle Draw — script.js  v5
+   - ALWAYS self-calculates from "List Ticket" sheet
+   - Reads raw 0/1 deposit data → counts tickets + streak bonus
+   - Never relies on Lark/Excel formula columns
    ═══════════════════════════════════════════════════════ */
 
 let participants = [];
@@ -13,7 +11,7 @@ let winnerCount  = 1;
 let winners      = [];
 let rolling      = false;
 
-console.log('[Raffle] script.js v4 loaded');
+console.log('[Raffle] script.js v5 loaded');
 
 // ── Load Excel ────────────────────────────────────────
 async function loadExcel() {
@@ -45,84 +43,74 @@ function showError(msg) {
 
 // ── Parse Workbook ────────────────────────────────────
 function parseWorkbook(wb) {
-  // Map: normalized name → { name (display), tickets }
-  const map = new Map();
+  // Always use "List Ticket" — it has the raw 0/1 deposit data
+  // Fall back to first sheet if "List Ticket" not found
+  let sheetName = wb.SheetNames[0];
+  if (wb.SheetNames.includes('List Ticket')) sheetName = 'List Ticket';
 
-  // ── Pass 1: Streak sheet pre-calc TOTAL TIKET ──
-  if (wb.SheetNames.includes('Streak')) {
-    const ws  = wb.Sheets['Streak'];
-    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-    const col = findDataCol(raw);
-    console.log('[Raffle] Streak: data col =', col);
+  const ws  = wb.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+  console.log('[Raffle] Using sheet:', sheetName, '| Rows:', raw.length);
 
-    if (col !== -1) {
-      for (let r = 4; r < raw.length; r++) {
-        const row = raw[r];
-        if (!row) continue;
-        const name = cleanName(row[1]);
-        if (!name) continue;
-        const tickets = Math.round(Number(row[col]) || 0);
-        if (tickets > 0) {
-          map.set(name.toLowerCase(), { name, tickets });
-        }
-      }
+  // Find date columns: serial dates (40000-60000) in header row
+  const headerRow  = raw[1] || [];
+  let firstDateCol = -1;
+  let lastDateCol  = -1;
+
+  for (let c = 2; c < headerRow.length; c++) {
+    const hdr = headerRow[c];
+    if (typeof hdr === 'number' && hdr > 40000 && hdr < 60000) {
+      if (firstDateCol === -1) firstDateCol = c;
+      lastDateCol = c;
     }
-    console.log('[Raffle] After Streak:', map.size, 'peserta');
   }
 
-  // ── Pass 2: List Ticket sheet — fill gaps with self-calc ──
-  if (wb.SheetNames.includes('List Ticket')) {
-    const ws  = wb.Sheets['List Ticket'];
-    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-
-    const headerRow  = raw[1] || [];
-    let firstDateCol = -1;
-    let lastDateCol  = -1;
-
-    for (let c = 2; c < headerRow.length; c++) {
-      const hdr = headerRow[c];
-      if (typeof hdr === 'number' && hdr > 40000 && hdr < 60000) {
-        if (firstDateCol === -1) firstDateCol = c;
-        lastDateCol = c;
-      }
-    }
-
-    console.log('[Raffle] List Ticket date cols:', firstDateCol, '→', lastDateCol);
-
-    if (firstDateCol !== -1 && lastDateCol !== -1) {
-      for (let r = 4; r < raw.length; r++) {
-        const row = raw[r];
-        if (!row) continue;
-        const name = cleanName(row[1]);
-        if (!name) continue;
-
-        const key = name.toLowerCase();
-
-        // Skip if already have this participant from Streak
-        if (map.has(key)) continue;
-
-        const tickets = calcTickets(row, firstDateCol, lastDateCol);
-        if (tickets > 0) {
-          map.set(key, { name, tickets });
-        }
-      }
-    }
-    console.log('[Raffle] After List Ticket merge:', map.size, 'peserta');
-  }
-
-  if (map.size === 0) {
-    showError('⚠️ 0 peserta ditemukan. Pastikan TICKET_TRACKER.xlsx memiliki data.');
+  if (firstDateCol === -1 || lastDateCol === -1) {
+    showError('⚠️ Kolom tanggal tidak ditemukan di sheet "' + sheetName + '"');
     return;
   }
 
-  participants = Array.from(map.values()).sort((a, b) => b.tickets - a.tickets);
+  console.log('[Raffle] Date columns:', firstDateCol, '→', lastDateCol,
+              '(' + (lastDateCol - firstDateCol + 1) + ' hari)');
 
+  // Parse all participants
+  const result = [];
+
+  for (let r = 4; r < raw.length; r++) {
+    const row = raw[r];
+    if (!row) continue;
+
+    const name = cleanName(row[1]);
+    if (!name) continue;
+
+    const calc    = calcTickets(row, firstDateCol, lastDateCol);
+    const tickets = calc.total;
+
+    if (tickets <= 0) continue;
+
+    result.push({
+      name,
+      tickets,
+      deposits: calc.deposits,
+      streakBonus: calc.bonus
+    });
+  }
+
+  console.log('[Raffle] ✅ Peserta:', result.length,
+              '| Total tiket:', result.reduce((s, p) => s + p.tickets, 0));
+
+  if (result.length === 0) {
+    showError('⚠️ 0 peserta ditemukan. Pastikan ada data deposit di sheet "' + sheetName + '".');
+    return;
+  }
+
+  participants = result.sort((a, b) => b.tickets - a.tickets);
+
+  // Build ticket pool (weighted random)
   ticketPool = [];
   participants.forEach(p => {
     for (let i = 0; i < p.tickets; i++) ticketPool.push(p.name);
   });
-
-  console.log('[Raffle] ✅ Total:', participants.length, 'peserta,', ticketPool.length, 'tiket');
 
   renderStats();
   renderTable();
@@ -137,36 +125,10 @@ function cleanName(val) {
   return s;
 }
 
-function colHasData(raw, col) {
-  for (let r = 4; r < Math.min(raw.length, 30); r++) {
-    const v = raw[r] && raw[r][col];
-    if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v)) && Number(v) > 0) return true;
-  }
-  return false;
-}
-
-function findDataCol(raw) {
-  const headerRow = raw[1] || [];
-
-  // Candidates: header contains "total" + "tiket"
-  const candidates = [];
-  for (let c = 0; c < headerRow.length; c++) {
-    const val = String(headerRow[c] || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (val.includes('total') && val.includes('tiket')) candidates.push(c);
-  }
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    if (colHasData(raw, candidates[i])) return candidates[i];
-  }
-
-  // Fallback: rightmost column with data
-  const maxCol = Math.max(...raw.slice(0, 5).map(r => (r || []).length));
-  for (let c = maxCol - 1; c >= 2; c--) {
-    if (colHasData(raw, c)) return c;
-  }
-  return -1;
-}
-
-// ── Self-calculate tickets from 0/1 deposits ──────────
+// ── Calculate tickets from raw 0/1 deposit data ──────
+// Rules: 1 deposit = 1 tiket
+//        5-day streak = +5 bonus
+//        10-day streak = +20 bonus
 function calcTickets(row, firstCol, lastCol) {
   let deposits = 0;
   let streak   = 0;
@@ -185,7 +147,8 @@ function calcTickets(row, firstCol, lastCol) {
     }
   }
 
-  return deposits + (bonus5 * 5) + (bonus10 * 20);
+  const bonus = (bonus5 * 5) + (bonus10 * 20);
+  return { deposits, bonus, total: deposits + bonus };
 }
 
 // ── Render Stats ──────────────────────────────────────
