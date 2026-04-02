@@ -40,23 +40,52 @@ function parseData(raw) {
     Row 4+ : data peserta
   */
 
-  // TOTAL TIKET is always the last non-empty column
-  // Based on actual sheet structure: col 31 (last col) = TOTAL TIKET
+  // Find the correct TOTAL TIKET column
   const headerRow = raw[1] || [];
-
-  // Find rightmost column that has any data in data rows
   let totalTicketCol = -1;
 
-  // First try: find header containing "total" + "tiket" (rightmost wins)
+  // Collect all candidate columns whose header contains "total" + "tiket"
+  const candidates = [];
   for (let c = 0; c < headerRow.length; c++) {
     const val = String(headerRow[c] || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (val.includes('total') && val.includes('tiket')) totalTicketCol = c;
+    if (val.includes('total') && val.includes('tiket')) candidates.push(c);
   }
 
-  // Second try: use the very last column (index = row length - 1)
+  // Pick the rightmost candidate that actually has numeric data in row 4+
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const c = candidates[i];
+    for (let r = 4; r < Math.min(raw.length, 15); r++) {
+      const v = raw[r] && raw[r][c];
+      if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v)) && Number(v) > 0) {
+        totalTicketCol = c;
+        break;
+      }
+    }
+    if (totalTicketCol !== -1) break;
+  }
+
+  // Fallback: scan rightmost columns of data rows for the last column with numbers
+  if (totalTicketCol === -1) {
+    const maxCol = Math.max(...raw.slice(0, 5).map(r => (r || []).length));
+    for (let c = maxCol - 1; c >= 2; c--) {
+      let hasData = false;
+      for (let r = 4; r < Math.min(raw.length, 15); r++) {
+        const v = raw[r] && raw[r][c];
+        if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v)) && Number(v) > 0) {
+          hasData = true;
+          break;
+        }
+      }
+      if (hasData) { totalTicketCol = c; break; }
+    }
+  }
+
+  // Last resort: use the very last column
   if (totalTicketCol === -1) {
     totalTicketCol = headerRow.length - 1;
   }
+
+  console.log('Using TOTAL TIKET column index:', totalTicketCol);
 
   const useSumFallback = false;
 
