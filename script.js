@@ -40,20 +40,25 @@ function parseData(raw) {
     Row 4+ : data peserta
   */
 
-  // Find column index of "TOTAL\nTIKET" or "Total\nTiket"
+  // TOTAL TIKET is always the last non-empty column
+  // Based on actual sheet structure: col 31 (last col) = TOTAL TIKET
   const headerRow = raw[1] || [];
+
+  // Find rightmost column that has any data in data rows
   let totalTicketCol = -1;
 
+  // First try: find header containing "total" + "tiket" (rightmost wins)
   for (let c = 0; c < headerRow.length; c++) {
     const val = String(headerRow[c] || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (val.includes('total') && val.includes('tiket')) {
-      totalTicketCol = c;
-      // prefer rightmost "total tiket" which is the grand total
-    }
+    if (val.includes('total') && val.includes('tiket')) totalTicketCol = c;
   }
 
-  // If not found, fallback: sum columns 2..25 (date columns with 0/1)
-  const useSumFallback = totalTicketCol === -1;
+  // Second try: use the very last column (index = row length - 1)
+  if (totalTicketCol === -1) {
+    totalTicketCol = headerRow.length - 1;
+  }
+
+  const useSumFallback = false;
 
   const result = [];
 
