@@ -1,124 +1,138 @@
 /* ═══════════════════════════════════════════════════════
-   Raffle Draw — script.js
-   Reads TICKET_TRACKER.xlsx via SheetJS
-   Sheet "Streak" col 31 (index 31) = TOTAL TIKET
+   Raffle Draw — script.js  v3
+   - Reads TICKET_TRACKER.xlsx via SheetJS
+   - Uses Streak sheet TOTAL TIKET if available
+   - Falls back to List Ticket sheet raw deposits
+   - Works with Lark Sheet / Google Sheets / Excel
    ═══════════════════════════════════════════════════════ */
 
-let participants = [];   // [{name, tickets}]
-let ticketPool   = [];   // flat array: name repeated by ticket count
+let participants = [];
+let ticketPool   = [];
 let winnerCount  = 1;
 let winners      = [];
 let rolling      = false;
 
+console.log('[Raffle] script.js v3 loaded');
+
 // ── Load Excel ────────────────────────────────────────
 async function loadExcel() {
   try {
-    const res  = await fetch('TICKET_TRACKER.xlsx?v=' + Date.now());
-    const buf  = await res.arrayBuffer();
-    const wb   = XLSX.read(buf, { type: 'array' });
+    const url = 'TICKET_TRACKER.xlsx?v=' + Date.now();
+    console.log('[Raffle] Fetching:', url);
 
-    // Prefer "Streak" sheet (has TOTAL TIKET col), fallback to first sheet
-    const sheetName = wb.SheetNames.includes('Streak') ? 'Streak' : wb.SheetNames[0];
-    const ws   = wb.Sheets[sheetName];
-    const raw  = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' — file tidak ditemukan');
 
-    parseData(raw);
+    const buf = await res.arrayBuffer();
+    console.log('[Raffle] File size:', buf.byteLength, 'bytes');
+
+    const wb = XLSX.read(buf, { type: 'array' });
+    console.log('[Raffle] Sheets:', wb.SheetNames.join(', '));
+
+    parseWorkbook(wb);
   } catch (e) {
-    console.error('Gagal membaca Excel:', e);
-    document.getElementById('table-body').innerHTML =
-      '<tr><td colspan="4" class="loading-row">⚠️ Gagal membaca TICKET_TRACKER.xlsx. Pastikan file ada di folder yang sama.</td></tr>';
+    console.error('[Raffle] Error:', e);
+    showError('⚠️ Gagal membaca TICKET_TRACKER.xlsx — ' + e.message);
   }
 }
 
-// ── Parse Sheet Data ──────────────────────────────────
-function parseData(raw) {
-  /*
-    Row 0  : aturan
-    Row 1  : header (col 0 = no, col 1 = MEMBER, col 31 = TOTAL TIKET for Streak sheet)
-    Row 2  : day labels
-    Row 3  : TOTAL row
-    Row 4+ : data peserta
-  */
+function showError(msg) {
+  document.getElementById('table-body').innerHTML =
+    '<tr><td colspan="4" class="loading-row">' + msg + '</td></tr>';
+  document.getElementById('draw-btn-text').textContent = 'Data Error';
+}
 
-  // Find the correct TOTAL TIKET column
-  const headerRow = raw[1] || [];
-  let totalTicketCol = -1;
+// ── Parse Workbook (multi-sheet strategy) ─────────────
+function parseWorkbook(wb) {
+  const result = [];
 
-  // Collect all candidate columns whose header contains "total" + "tiket"
-  const candidates = [];
-  for (let c = 0; c < headerRow.length; c++) {
-    const val = String(headerRow[c] || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (val.includes('total') && val.includes('tiket')) candidates.push(c);
+  // ── Strategy 1: Streak sheet pre-calc column ──
+  if (wb.SheetNames.includes('Streak')) {
+    const ws  = wb.Sheets['Streak'];
+    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    const col = findTotalTicketCol(raw);
+    console.log('[Raffle] Streak: TOTAL TIKET col =', col);
+
+    if (col !== -1) {
+      for (let r = 4; r < raw.length; r++) {
+        const row = raw[r];
+        if (!row) continue;
+        const name = cleanName(row[1]);
+        if (!name) continue;
+        const tickets = Math.round(Number(row[col]) || 0);
+        if (tickets > 0) result.push({ name, tickets });
+      }
+    }
   }
 
-  // Pick the rightmost candidate that actually has numeric data in row 4+
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    const c = candidates[i];
-    for (let r = 4; r < Math.min(raw.length, 15); r++) {
-      const v = raw[r] && raw[r][c];
-      if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v)) && Number(v) > 0) {
-        totalTicketCol = c;
+  console.log('[Raffle] Strategy 1 (Streak precalc):', result.length, 'peserta');
+
+  // ── Strategy 2: List Ticket sheet — self-calc from 0/1 deposits ──
+  if (result.length === 0 && wb.SheetNames.includes('List Ticket')) {
+    const ws  = wb.Sheets['List Ticket'];
+    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+    // Find date columns (serial numbers 40000-60000)
+    const headerRow  = raw[1] || [];
+    let firstDateCol = -1;
+    let lastDateCol  = -1;
+
+    for (let c = 2; c < headerRow.length; c++) {
+      const hdr = headerRow[c];
+      if (typeof hdr === 'number' && hdr > 40000 && hdr < 60000) {
+        if (firstDateCol === -1) firstDateCol = c;
+        lastDateCol = c;
+      }
+    }
+
+    console.log('[Raffle] List Ticket date cols:', firstDateCol, '→', lastDateCol);
+
+    if (firstDateCol !== -1 && lastDateCol !== -1) {
+      for (let r = 4; r < raw.length; r++) {
+        const row = raw[r];
+        if (!row) continue;
+        const name = cleanName(row[1]);
+        if (!name) continue;
+        const tickets = calcTickets(row, firstDateCol, lastDateCol);
+        if (tickets > 0) result.push({ name, tickets });
+      }
+    }
+
+    console.log('[Raffle] Strategy 2 (List Ticket self-calc):', result.length, 'peserta');
+  }
+
+  // ── Strategy 3: Any sheet, last numeric column ──
+  if (result.length === 0) {
+    console.log('[Raffle] Trying Strategy 3: any sheet, any numeric column');
+    for (const sn of wb.SheetNames) {
+      const ws  = wb.Sheets[sn];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      const col = findLastNumericCol(raw);
+      if (col === -1) continue;
+
+      for (let r = 4; r < raw.length; r++) {
+        const row = raw[r];
+        if (!row) continue;
+        const name = cleanName(row[1]);
+        if (!name) continue;
+        const tickets = Math.round(Number(row[col]) || 0);
+        if (tickets > 0) result.push({ name, tickets });
+      }
+
+      if (result.length > 0) {
+        console.log('[Raffle] Strategy 3 found', result.length, 'in sheet:', sn, 'col:', col);
         break;
       }
     }
-    if (totalTicketCol !== -1) break;
   }
 
-  // Fallback: scan rightmost columns of data rows for the last column with numbers
-  if (totalTicketCol === -1) {
-    const maxCol = Math.max(...raw.slice(0, 5).map(r => (r || []).length));
-    for (let c = maxCol - 1; c >= 2; c--) {
-      let hasData = false;
-      for (let r = 4; r < Math.min(raw.length, 15); r++) {
-        const v = raw[r] && raw[r][c];
-        if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v)) && Number(v) > 0) {
-          hasData = true;
-          break;
-        }
-      }
-      if (hasData) { totalTicketCol = c; break; }
-    }
-  }
-
-  // Last resort: use the very last column
-  if (totalTicketCol === -1) {
-    totalTicketCol = headerRow.length - 1;
-  }
-
-  console.log('Using TOTAL TIKET column index:', totalTicketCol);
-
-  const useSumFallback = false;
-
-  const result = [];
-
-  for (let r = 4; r < raw.length; r++) {
-    const row  = raw[r];
-    if (!row) continue;
-
-    const name = row[1];
-    if (!name || String(name).trim() === '' || String(name).trim() === '0') continue;
-
-    let tickets = 0;
-
-    if (useSumFallback) {
-      // Sum day columns (cols 2 to 25)
-      for (let c = 2; c <= 25; c++) {
-        const v = Number(row[c]);
-        if (!isNaN(v)) tickets += v;
-      }
-    } else {
-      tickets = Number(row[totalTicketCol]);
-      if (isNaN(tickets) || tickets === null) tickets = 0;
-    }
-
-    if (tickets <= 0) continue; // skip peserta without tickets
-
-    result.push({ name: String(name).trim(), tickets: Math.round(tickets) });
+  if (result.length === 0) {
+    showError('⚠️ 0 peserta ditemukan. Pastikan TICKET_TRACKER.xlsx memiliki data deposit.');
+    return;
   }
 
   participants = result.sort((a, b) => b.tickets - a.tickets);
 
-  // Build ticket pool
   ticketPool = [];
   participants.forEach(p => {
     for (let i = 0; i < p.tickets; i++) ticketPool.push(p.name);
@@ -127,6 +141,81 @@ function parseData(raw) {
   renderStats();
   renderTable();
   enableDraw();
+}
+
+// ── Helper: clean name ────────────────────────────────
+function cleanName(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (s === '' || s === '0' || s.toUpperCase() === 'TOTAL') return null;
+  return s;
+}
+
+// ── Helper: find TOTAL TIKET column with actual data ──
+function findTotalTicketCol(raw) {
+  const headerRow = raw[1] || [];
+
+  // Header candidates: contains "total" + "tiket"
+  const candidates = [];
+  for (let c = 0; c < headerRow.length; c++) {
+    const val = String(headerRow[c] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (val.includes('total') && val.includes('tiket')) candidates.push(c);
+  }
+
+  // Pick rightmost candidate with actual positive data in rows 4-20
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    if (colHasData(raw, candidates[i])) return candidates[i];
+  }
+
+  // Try last columns (header might be empty/formula)
+  const maxCol = Math.max(...raw.slice(0, 5).map(r => (r || []).length));
+  for (let c = maxCol - 1; c >= 2; c--) {
+    if (colHasData(raw, c)) return c;
+  }
+
+  return -1;
+}
+
+// ── Helper: find last column with numeric data ────────
+function findLastNumericCol(raw) {
+  const maxCol = Math.max(...raw.slice(0, 5).map(r => (r || []).length));
+  for (let c = maxCol - 1; c >= 2; c--) {
+    if (colHasData(raw, c)) return c;
+  }
+  return -1;
+}
+
+// ── Helper: check if a column has positive numeric data ──
+function colHasData(raw, col) {
+  for (let r = 4; r < Math.min(raw.length, 20); r++) {
+    const v = raw[r] && raw[r][col];
+    if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v)) && Number(v) > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ── Self-calculate tickets from 0/1 deposit columns ──
+function calcTickets(row, firstCol, lastCol) {
+  let deposits = 0;
+  let streak   = 0;
+  let bonus5   = 0;
+  let bonus10  = 0;
+
+  for (let c = firstCol; c <= lastCol; c++) {
+    const v = Number(row[c]);
+    if (v === 1) {
+      deposits++;
+      streak++;
+      if (streak === 5)  bonus5++;
+      if (streak === 10) bonus10++;
+    } else {
+      streak = 0;
+    }
+  }
+
+  return deposits + (bonus5 * 5) + (bonus10 * 20);
 }
 
 // ── Render Stats ──────────────────────────────────────
@@ -139,8 +228,8 @@ function renderStats() {
 }
 
 function animNum(id, target) {
-  const el   = document.getElementById(id);
-  const dur  = 800;
+  const el  = document.getElementById(id);
+  const dur = 800;
   const start = performance.now();
   (function tick(now) {
     const p = Math.min((now - start) / dur, 1);
@@ -159,7 +248,7 @@ function renderTable() {
     `${participants.length} peserta · ${total} tiket total`;
 
   tbody.innerHTML = participants.map((p, i) => {
-    const pct = total > 0 ? ((p.tickets / total) * 100).toFixed(2) : '0.00';
+    const pct  = total > 0 ? ((p.tickets / total) * 100).toFixed(2) : '0.00';
     const barW = total > 0 ? Math.min((p.tickets / participants[0].tickets) * 100, 100) : 0;
     return `
       <tr id="row-${sanitize(p.name)}">
@@ -201,7 +290,6 @@ function changeWinnerCount(delta) {
 function startDraw() {
   if (rolling || ticketPool.length === 0) return;
 
-  // Filter pool: exclude already-drawn winners
   const available = ticketPool.filter(n => !winners.includes(n));
   if (available.length === 0) {
     alert('Semua peserta sudah menang! Reset dulu ya.');
@@ -221,14 +309,11 @@ function startDraw() {
   document.getElementById('draw-btn-text').textContent = 'Rolling…';
 
   showDrum();
-
-  // Draw all winners sequentially
   drawNext(available, drawN, 0, []);
 }
 
 function drawNext(pool, total, idx, newWinners) {
   if (idx >= total) {
-    // All done
     winners = [...winners, ...newWinners];
     rolling = false;
 
@@ -252,17 +337,15 @@ function drawNext(pool, total, idx, newWinners) {
     return;
   }
 
-  // Exclude already picked in this draw session too
   const available = pool.filter(n => !newWinners.includes(n));
   if (available.length === 0) {
-    drawNext(pool, total, total, newWinners); // done
+    drawNext(pool, total, total, newWinners);
     return;
   }
 
   rollAnimation(available, () => {
     const winner = available[Math.floor(Math.random() * available.length)];
     newWinners.push(winner);
-    // Show final name briefly then continue
     document.getElementById('drum-name').textContent = winner;
     setTimeout(() => drawNext(pool, total, idx + 1, newWinners), 800);
   });
@@ -279,26 +362,17 @@ function hideDrum() {
 }
 
 function rollAnimation(pool, callback) {
-  const nameEl = document.getElementById('drum-name');
+  const nameEl   = document.getElementById('drum-name');
   const DURATION = 2000;
-  const start = performance.now();
-  let interval = 60;
+  const start    = performance.now();
 
   function frame(now) {
-    const elapsed = now - start;
+    const elapsed  = now - start;
     const progress = Math.min(elapsed / DURATION, 1);
-
-    // Random name from pool
     nameEl.textContent = pool[Math.floor(Math.random() * pool.length)];
-
-    // Slow down towards end
-    interval = 60 + progress * 180;
-
-    if (progress < 1) {
-      setTimeout(() => requestAnimationFrame(frame), interval);
-    } else {
-      callback();
-    }
+    const interval = 60 + progress * 180;
+    if (progress < 1) setTimeout(() => requestAnimationFrame(frame), interval);
+    else callback();
   }
 
   requestAnimationFrame(frame);
@@ -310,11 +384,11 @@ function renderWinners() {
   sec.classList.add('visible');
 
   const medals = ['🥇','🥈','🥉'];
-  const list = document.getElementById('winners-list');
+  const list   = document.getElementById('winners-list');
   list.innerHTML = winners.map((name, i) => {
-    const p = participants.find(x => x.name === name);
+    const p       = participants.find(x => x.name === name);
     const tickets = p ? p.tickets : 0;
-    const pct = ticketPool.length > 0 ? ((tickets / ticketPool.length) * 100).toFixed(2) : '0';
+    const pct     = ticketPool.length > 0 ? ((tickets / ticketPool.length) * 100).toFixed(2) : '0';
     return `
       <div class="winner-card" style="animation-delay:${i * 0.12}s">
         <div class="winner-rank">${medals[i] || `#${i+1}`}</div>
@@ -386,7 +460,8 @@ function launchConfetti() {
       p.y += p.d + Math.sin(p.tiltAngle) * 0.5;
       p.tilt = Math.sin(p.tiltAngle) * 12;
 
-      if (frame > TOTAL * 0.6) p.alpha = Math.max(0, 1 - (frame - TOTAL * 0.6) / (TOTAL * 0.4));
+      if (frame > TOTAL * 0.6)
+        p.alpha = Math.max(0, 1 - (frame - TOTAL * 0.6) / (TOTAL * 0.4));
 
       ctx.save();
       ctx.globalAlpha = p.alpha;
