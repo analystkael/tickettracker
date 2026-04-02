@@ -3,98 +3,135 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Raffle Draw — Ticket Tracker</title>
+  <title>KAEL · Raffle Draw</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
   <canvas id="confetti-canvas"></canvas>
-  <div class="noise"></div>
+
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+
+  <nav class="topbar">
+    <div class="topbar-left">
+      <span class="logo">K</span>
+      <span class="brand">KAEL</span>
+    </div>
+    <div class="topbar-right">
+      <span class="live-dot"></span>
+      <span class="live-text">LIVE DRAW</span>
+    </div>
+  </nav>
 
   <header>
-    <div class="header-inner">
-      <span class="badge">● LIVE DRAW</span>
-      <h1>Raffle <em>Draw</em></h1>
-      <p class="subtitle">Deposit harian &nbsp;·&nbsp; Streak bonus &nbsp;·&nbsp; Random winner</p>
-    </div>
+    <p class="header-tag">Community Raffle Event</p>
+    <h1>Deposit. Streak. <span class="h1-accent">Win.</span></h1>
+    <p class="header-sub">Setiap deposit harian = 1 tiket &nbsp;·&nbsp; Streak 5 hari = +5 bonus &nbsp;·&nbsp; Streak 10 hari = +20 bonus</p>
   </header>
 
   <main>
+
     <section class="stats" id="stats">
       <div class="stat-card">
-        <div class="stat-num" id="stat-peserta">—</div>
-        <div class="stat-label">Peserta</div>
+        <span class="stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </span>
+        <div class="stat-data">
+          <div class="stat-num" id="stat-peserta">—</div>
+          <div class="stat-label">Peserta</div>
+        </div>
       </div>
-      <div class="stat-card accent">
-        <div class="stat-num" id="stat-tiket">—</div>
-        <div class="stat-label">Total Tiket</div>
+      <div class="stat-card featured">
+        <span class="stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3h-8l-2 4h12z"/></svg>
+        </span>
+        <div class="stat-data">
+          <div class="stat-num" id="stat-tiket">—</div>
+          <div class="stat-label">Total Tiket</div>
+        </div>
       </div>
       <div class="stat-card">
-        <div class="stat-num" id="stat-date-val">—</div>
-        <div class="stat-label">Update Terakhir</div>
+        <span class="stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <div class="stat-data">
+          <div class="stat-num" id="stat-date-val">—</div>
+          <div class="stat-label">Update Terakhir</div>
+        </div>
       </div>
     </section>
 
-    <section class="draw-section">
-      <div class="control-row">
-        <span class="control-label">Jumlah Pemenang</span>
-        <div class="stepper">
-          <button class="step-btn" onclick="changeWinnerCount(-1)">−</button>
-          <span id="winner-count">1</span>
-          <button class="step-btn" onclick="changeWinnerCount(1)">+</button>
+    <section class="draw-panel">
+      <div class="draw-panel-inner">
+        <div class="draw-left">
+          <div class="control-row">
+            <span class="control-label">Jumlah Pemenang</span>
+            <div class="stepper">
+              <button class="step-btn" onclick="changeWinnerCount(-1)" aria-label="Kurangi">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <span id="winner-count">1</span>
+              <button class="step-btn" onclick="changeWinnerCount(1)" aria-label="Tambah">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="draw-right">
+          <button class="draw-btn" id="draw-btn" onclick="startDraw()" disabled>
+            <span id="draw-btn-text">Memuat data…</span>
+            <svg class="draw-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM7.5 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm0 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm4.5 3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm0-7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm4.5 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm0-7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
+          </button>
+          <button class="reset-btn" id="reset-btn" onclick="resetDraw()">Reset</button>
         </div>
       </div>
-
-      <button class="draw-btn" id="draw-btn" onclick="startDraw()" disabled>
-        <span id="draw-btn-text">Memuat data…</span>
-        <span class="btn-icon">🎲</span>
-      </button>
-
-      <button class="reset-btn" id="reset-btn" onclick="resetDraw()">
-        ↺ &nbsp;Reset Draw
-      </button>
     </section>
 
     <section class="drum-section" id="drum-section">
-      <div class="drum" id="drum">
+      <div class="drum">
+        <div class="drum-label">SELECTING</div>
         <div class="drum-name" id="drum-name">???</div>
-        <div class="drum-sub">sedang memilih pemenang…</div>
+        <div class="drum-bar"><div class="drum-bar-fill"></div></div>
       </div>
     </section>
 
     <section class="winners-section" id="winners-section">
-      <h2 class="winners-title">🏆 &nbsp;Pemenang Raffle</h2>
+      <h2 class="section-title">Pemenang</h2>
       <div class="winners-list" id="winners-list"></div>
     </section>
 
     <section class="table-section">
-      <div class="table-header-row">
-        <h2>Daftar Peserta</h2>
+      <div class="table-top">
+        <h2 class="section-title">Daftar Peserta</h2>
         <span class="table-note" id="table-note"></span>
       </div>
       <div class="table-wrap">
         <table id="participants-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Nama</th>
-              <th>Total Tiket</th>
-              <th>Peluang</th>
+              <th class="col-rank">#</th>
+              <th class="col-name">Nama</th>
+              <th class="col-ticket">Tiket</th>
+              <th class="col-prob">Peluang</th>
             </tr>
           </thead>
           <tbody id="table-body">
-            <tr><td colspan="4" class="loading-row">Membaca data Excel…</td></tr>
+            <tr><td colspan="4" class="loading-row">Memuat data…</td></tr>
           </tbody>
         </table>
       </div>
     </section>
+
   </main>
 
   <footer>
-    <p>Data dibaca langsung dari <code>TICKET_TRACKER.xlsx</code> &nbsp;·&nbsp; Ganti file di GitHub untuk update otomatis</p>
+    <span class="footer-brand">KAEL</span>
+    <span class="footer-sep">·</span>
+    <span>Community Raffle System</span>
   </footer>
 
   <script src="script.js"></script>
