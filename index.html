@@ -102,6 +102,38 @@
       </div>
     </section>
 
+
+    <section class="wheel-section" id="wheel-section">
+      <div class="wheel-card">
+        <div class="wheel-head">
+          <div>
+            <h2 class="section-title">Spin Wheel</h2>
+            <p class="wheel-sub">Ukuran irisan roda mengikuti jumlah tiket. Makin banyak tiket, makin besar area dan makin besar peluang menang.</p>
+          </div>
+          <div class="wheel-status" id="wheel-status">Memuat roda…</div>
+        </div>
+
+        <div class="wheel-stage">
+          <div class="wheel-wrap" id="wheel-wrap">
+            <div class="wheel-pointer" aria-hidden="true"></div>
+            <canvas id="wheel-canvas" width="520" height="520" aria-label="Weighted spin wheel"></canvas>
+            <div class="wheel-center">
+              <span>KAEL</span>
+              <small>WEIGHTED</small>
+            </div>
+          </div>
+
+          <aside class="wheel-side">
+            <div class="wheel-selected" id="wheel-selected">
+              <span>Status</span>
+              <strong>Menunggu data…</strong>
+            </div>
+            <div class="wheel-mini-title">Peluang Terbesar</div>
+            <div class="wheel-legend" id="wheel-legend"></div>
+          </aside>
+        </div>
+      </div>
+    </section>
     <section class="drum-section" id="drum-section">
       <div class="drum">
         <div class="drum-label">SELECTING</div>

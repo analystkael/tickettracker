@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════════════════
-   Raffle Draw — script.js  v5.2
+   Raffle Draw — script.js  v6.0
    - Self-calculates from "List Ticket" sheet
    - Winner loses 1 ticket per win (can win again if > 0)
    - Table updates live after each draw
    - Winner reveal overlay
+   - Weighted spin wheel: visual slice size = current tickets
    ═══════════════════════════════════════════════════════ */
 
 let participants = [];   // [{name, tickets, original}]
@@ -12,8 +13,15 @@ let winnerCount  = 1;
 let winners      = [];   // [{name, rank}] — same name can appear multiple times
 let rolling      = false;
 let revealResolve = null;
+let wheelSegments = [];
+let wheelRotation = 0;
 
-console.log('[Raffle] script.js v5.2 loaded');
+const WHEEL_COLORS = [
+  '#22d68a', '#f0c645', '#5b8df0', '#f05545', '#a855f7', '#14b8a6',
+  '#f97316', '#ec4899', '#84cc16', '#06b6d4', '#eab308', '#8b5cf6'
+];
+
+console.log('[Raffle] script.js v6.0 loaded');
 
 // ── Load Excel ────────────────────────────────────────
 async function loadExcel() {
@@ -90,6 +98,7 @@ function parseWorkbook(wb) {
   rebuildPool();
   renderStats();
   renderTable();
+  renderWheel();
   enableDraw();
 }
 
@@ -202,7 +211,7 @@ function escHtml(s) {
 
 function enableDraw() {
   document.getElementById('draw-btn').disabled = false;
-  document.getElementById('draw-btn-text').textContent = 'Draw Winner!';
+  document.getElementById('draw-btn-text').textContent = 'Spin Wheel!';
 }
 
 function changeWinnerCount(delta) {
@@ -224,9 +233,9 @@ function startDraw() {
   const btn = document.getElementById('draw-btn');
   btn.disabled = true;
   btn.classList.add('rolling');
-  document.getElementById('draw-btn-text').textContent = 'Rolling…';
+  document.getElementById('draw-btn-text').textContent = 'Spinning…';
 
-  showDrum();
+  showWheel();
   drawSequence(winnerCount, 0);
 }
 
@@ -234,6 +243,7 @@ async function drawSequence(total, idx) {
   if (idx >= total || ticketPool.length === 0) {
     rolling = false;
     hideDrum();
+    renderWheel();
     renderWinners();
     highlightWinnerRows();
 
@@ -242,7 +252,7 @@ async function drawSequence(total, idx) {
 
     if (ticketPool.length > 0) {
       btn.disabled = false;
-      document.getElementById('draw-btn-text').textContent = 'Draw Lagi!';
+      document.getElementById('draw-btn-text').textContent = 'Spin Lagi!';
     } else {
       document.getElementById('draw-btn-text').textContent = 'Tiket Habis';
       btn.disabled = true;
@@ -252,38 +262,46 @@ async function drawSequence(total, idx) {
     return;
   }
 
-  // Roll animation → weighted random pick from current pool
-  const winner = await new Promise(resolve => {
-    rollAnimation(() => {
-      const picked = ticketPool[Math.floor(Math.random() * ticketPool.length)];
-      document.getElementById('drum-name').textContent = picked;
-      resolve(picked);
-    });
+  // Weighted random pick: setiap tiket punya 1 slot di ticketPool.
+  // Jadi peserta dengan tiket lebih banyak otomatis punya peluang lebih besar.
+  const winner = pickWeightedWinner();
+  const before = participants.find(x => x.name === winner);
+  const ticketsBefore = before ? before.tickets : 0;
+  const totalBefore = ticketPool.length;
+  const chanceBefore = totalBefore > 0 ? (ticketsBefore / totalBefore) * 100 : 0;
+
+  await spinWheelToWinner(winner);
+
+  // Winner hanya kehilangan 1 tiket per win, jadi masih bisa menang lagi jika tiketnya tersisa.
+  consumeTicket(winner);
+  winners.push({
+    name: winner,
+    rank: winners.length + 1,
+    ticketsBefore,
+    chanceBefore
   });
 
-  // Consume 1 ticket
-  consumeTicket(winner);
-  winners.push({ name: winner, rank: winners.length + 1 });
-
-  // Update displays
   renderStats();
   renderTable();
-
-  // Show reveal
-  hideDrum();
   launchConfetti();
 
-  const p = participants.find(x => x.name === winner);
-  const remaining = p ? p.tickets : 0;
-  await showReveal(winner, winners.length, remaining);
+  const after = participants.find(x => x.name === winner);
+  const remaining = after ? after.tickets : 0;
+  await showReveal(winner, winners.length, remaining, ticketsBefore, chanceBefore);
 
-  // Continue
-  if (idx + 1 < total && ticketPool.length > 0) showDrum();
+  // Refresh ukuran irisan roda berdasarkan tiket yang sudah berkurang.
+  renderWheel();
+
   drawSequence(total, idx + 1);
 }
 
+function pickWeightedWinner() {
+  if (ticketPool.length === 0) return null;
+  return ticketPool[Math.floor(Math.random() * ticketPool.length)];
+}
+
 // ── Winner Reveal ─────────────────────────────────────
-function showReveal(name, rank, remaining) {
+function showReveal(name, rank, remaining, ticketsBefore = 0, chanceBefore = 0) {
   const medals = ['🥇','🥈','🥉'];
   const p = participants.find(x => x.name === name);
   const orig = p ? p.original : 0;
@@ -292,7 +310,7 @@ function showReveal(name, rank, remaining) {
   document.getElementById('reveal-medal').textContent = medals[rank - 1] || '🏆';
   document.getElementById('reveal-name').textContent = name;
   document.getElementById('reveal-info').textContent =
-    'Sisa tiket: ' + remaining + '/' + orig;
+    ticketsBefore + ' tiket saat draw · peluang ' + chanceBefore.toFixed(2) + '% · sisa ' + remaining + '/' + orig;
 
   const el = document.getElementById('reveal');
   el.classList.add('visible');
@@ -313,6 +331,250 @@ function dismissReveal() {
     el.style.opacity = '';
     if (revealResolve) { revealResolve(); revealResolve = null; }
   }, 250);
+}
+
+// ── Weighted Spin Wheel ───────────────────────────────
+function buildWheelSegments() {
+  const active = participants
+    .filter(p => p.tickets > 0)
+    .sort((a, b) => b.tickets - a.tickets || a.name.localeCompare(b.name));
+
+  const total = active.reduce((sum, p) => sum + p.tickets, 0);
+  let angle = -Math.PI / 2;
+
+  wheelSegments = active.map((p, i) => {
+    const size = total > 0 ? (p.tickets / total) * Math.PI * 2 : 0;
+    const seg = {
+      name: p.name,
+      tickets: p.tickets,
+      original: p.original,
+      percent: total > 0 ? (p.tickets / total) * 100 : 0,
+      start: angle,
+      end: angle + size,
+      size,
+      color: WHEEL_COLORS[i % WHEEL_COLORS.length]
+    };
+    seg.mid = seg.start + (seg.size / 2);
+    angle += size;
+    return seg;
+  });
+
+  return wheelSegments;
+}
+
+function renderWheel() {
+  const canvas = document.getElementById('wheel-canvas');
+  if (!canvas) return;
+
+  const segments = buildWheelSegments();
+  drawWheel(wheelRotation);
+  renderWheelLegend(segments);
+
+  const total = ticketPool.length;
+  const active = participants.filter(p => p.tickets > 0).length;
+  const status = document.getElementById('wheel-status');
+  if (status) status.textContent = active + ' peserta · ' + total.toLocaleString('id-ID') + ' tiket';
+
+  if (!rolling) {
+    const selected = document.getElementById('wheel-selected');
+    if (selected) {
+      selected.innerHTML = `<span>Status</span><strong>Siap di-spin</strong><small>Irisan roda mengikuti tiket aktif saat ini.</small>`;
+    }
+  }
+}
+
+function drawWheel(rotation = wheelRotation) {
+  const canvas = document.getElementById('wheel-canvas');
+  if (!canvas) return;
+
+  const wrap = document.getElementById('wheel-wrap') || canvas.parentElement;
+  const size = Math.max(280, Math.min(wrap ? wrap.clientWidth : 520, 520));
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = (size / 2) - 12;
+
+  // Base glow
+  const grad = ctx.createRadialGradient(cx, cy, radius * .15, cx, cy, radius);
+  grad.addColorStop(0, 'rgba(255,255,255,.08)');
+  grad.addColorStop(1, 'rgba(255,255,255,.015)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (wheelSegments.length === 0) {
+    ctx.fillStyle = '#161a24';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#9ba2b4';
+    ctx.font = '600 16px Instrument Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Menunggu data tiket', cx, cy - 8);
+    ctx.font = '12px Space Mono, monospace';
+    ctx.fillText('TICKET_TRACKER.xlsx', cx, cy + 14);
+    return;
+  }
+
+  wheelSegments.forEach((seg) => {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, radius, seg.start + rotation, seg.end + rotation);
+    ctx.closePath();
+    ctx.fillStyle = seg.color;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(8,9,12,.55)';
+    ctx.lineWidth = Math.max(1, size * 0.004);
+    ctx.stroke();
+
+    // Label hanya ditampilkan jika irisannya cukup besar agar roda tetap rapi.
+    if (seg.size > 0.11) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(seg.mid + rotation);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = 'rgba(255,255,255,.94)';
+      ctx.shadowColor = 'rgba(0,0,0,.45)';
+      ctx.shadowBlur = 3;
+      const name = trimLabel(seg.name, seg.size > 0.24 ? 18 : 11);
+      ctx.font = `700 ${seg.size > 0.24 ? 12 : 9}px Instrument Sans, sans-serif`;
+      ctx.fillText(name, radius - 20, 0);
+      if (seg.size > 0.20) {
+        ctx.font = '700 10px Space Mono, monospace';
+        ctx.fillText(seg.tickets + ' tiket', radius - 20, 14);
+      }
+      ctx.restore();
+    }
+  });
+
+  // Ring luar dan ring tengah
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,.18)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * .22, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(8,9,12,.55)';
+  ctx.lineWidth = 8;
+  ctx.stroke();
+}
+
+function renderWheelLegend(segments) {
+  const el = document.getElementById('wheel-legend');
+  if (!el) return;
+
+  const top = [...segments].sort((a, b) => b.tickets - a.tickets).slice(0, 5);
+
+  if (top.length === 0) {
+    el.innerHTML = '<div class="wheel-legend-item"><span></span><span class="wheel-legend-name">Belum ada peserta aktif</span><span class="wheel-legend-meta">—</span></div>';
+    return;
+  }
+
+  el.innerHTML = top.map(seg => `
+    <div class="wheel-legend-item">
+      <span class="wheel-dot" style="background:${seg.color}; color:${seg.color}"></span>
+      <span class="wheel-legend-name">${escHtml(seg.name)}</span>
+      <span class="wheel-legend-meta">${seg.tickets} · ${seg.percent.toFixed(2)}%</span>
+    </div>
+  `).join('');
+}
+
+function showWheel() {
+  const el = document.getElementById('wheel-section');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function spinWheelToWinner(name) {
+  return new Promise(resolve => {
+    const segments = buildWheelSegments();
+    const seg = segments.find(x => x.name === name);
+    if (!seg) {
+      resolve();
+      return;
+    }
+
+    const selected = document.getElementById('wheel-selected');
+    const landingAngle = seg.start + seg.size * (0.18 + Math.random() * 0.64);
+    const pointerAngle = -Math.PI / 2;
+    const targetBase = pointerAngle - landingAngle;
+    const full = Math.PI * 2;
+    const currentMod = normalizeAngle(wheelRotation);
+    const targetMod = normalizeAngle(targetBase);
+    let delta = targetMod - currentMod;
+    if (delta < 0) delta += full;
+
+    const extraSpins = (5 + Math.floor(Math.random() * 3)) * full;
+    const start = wheelRotation;
+    const end = wheelRotation + extraSpins + delta;
+    const duration = 4600;
+    const started = performance.now();
+
+    function animate(now) {
+      const t = Math.min((now - started) / duration, 1);
+      const eased = easeOutCubic(t);
+      wheelRotation = start + (end - start) * eased;
+      drawWheel(wheelRotation);
+
+      const current = segmentUnderPointer(wheelRotation);
+      if (selected && current) {
+        selected.innerHTML = `<span>Rolling…</span><strong>${escHtml(current.name)}</strong><small>${current.tickets} tiket · ${current.percent.toFixed(2)}%</small>`;
+      }
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        wheelRotation = normalizeAngle(end);
+        drawWheel(wheelRotation);
+        if (selected) {
+          selected.innerHTML = `<span>Terpilih</span><strong>${escHtml(name)}</strong><small>${seg.tickets} tiket · peluang ${seg.percent.toFixed(2)}%</small>`;
+        }
+        resolve();
+      }
+    }
+
+    requestAnimationFrame(animate);
+  });
+}
+
+function segmentUnderPointer(rotation) {
+  const pointerBaseAngle = normalizeAngle((-Math.PI / 2) - rotation);
+  return wheelSegments.find(seg => angleInSegment(pointerBaseAngle, seg.start, seg.end));
+}
+
+function angleInSegment(angle, start, end) {
+  const a = normalizeAngle(angle);
+  const s = normalizeAngle(start);
+  const e = normalizeAngle(end);
+  if (s <= e) return a >= s && a < e;
+  return a >= s || a < e;
+}
+
+function normalizeAngle(angle) {
+  const full = Math.PI * 2;
+  return ((angle % full) + full) % full;
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function trimLabel(name, max) {
+  const str = String(name || '');
+  return str.length > max ? str.slice(0, max - 1) + '…' : str;
 }
 
 // ── Drum ──────────────────────────────────────────────
@@ -395,11 +657,12 @@ function resetDraw() {
 
   renderStats();
   renderTable();
+  renderWheel();
 
   const btn = document.getElementById('draw-btn');
   btn.disabled = false;
   btn.classList.remove('rolling');
-  document.getElementById('draw-btn-text').textContent = 'Draw Winner!';
+  document.getElementById('draw-btn-text').textContent = 'Spin Wheel!';
 }
 
 // ── Confetti ──────────────────────────────────────────
@@ -450,3 +713,6 @@ function launchConfetti() {
 
 // ── Init ──────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', loadExcel);
+window.addEventListener('resize', () => {
+  if (participants.length > 0) drawWheel(wheelRotation);
+});
