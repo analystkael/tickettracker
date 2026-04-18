@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   Raffle Draw — script.js  v6.0
+   Raffle Draw — script.js  v6.1
    - Self-calculates from "List Ticket" sheet
    - Winner loses 1 ticket per win (can win again if > 0)
    - Table updates live after each draw
@@ -21,7 +21,43 @@ const WHEEL_COLORS = [
   '#f97316', '#ec4899', '#84cc16', '#06b6d4', '#eab308', '#8b5cf6'
 ];
 
-console.log('[Raffle] script.js v6.0 loaded');
+// Random helper: memakai crypto jika tersedia, fallback ke Math.random.
+function randomInt(max) {
+  if (!Number.isFinite(max) || max <= 0) return 0;
+
+  const cryptoObj = window.crypto || window.msCrypto;
+  if (cryptoObj && cryptoObj.getRandomValues) {
+    const values = new Uint32Array(1);
+    const limit = Math.floor(0x100000000 / max) * max;
+
+    do {
+      cryptoObj.getRandomValues(values);
+    } while (values[0] >= limit);
+
+    return values[0] % max;
+  }
+
+  return Math.floor(Math.random() * max);
+}
+
+function shuffleArray(list) {
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function randomizeVisualOrder(list) {
+  return shuffleArray(list).map((p, i) => ({
+    ...p,
+    randomOrder: i,
+    colorIndex: i
+  }));
+}
+
+console.log('[Raffle] script.js v6.1 loaded');
 
 // ── Load Excel ────────────────────────────────────────
 async function loadExcel() {
@@ -94,7 +130,9 @@ function parseWorkbook(wb) {
     return;
   }
 
-  participants = result.sort((a, b) => b.tickets - a.tickets);
+  // Acak urutan visual agar tabel dan roda tidak terlihat tersusun dari tiket terbesar.
+  // Peluang tetap weighted berdasarkan jumlah tiket masing-masing peserta.
+  participants = randomizeVisualOrder(result);
   rebuildPool();
   renderStats();
   renderTable();
@@ -128,6 +166,9 @@ function rebuildPool() {
   participants.forEach(p => {
     for (let i = 0; i < p.tickets; i++) ticketPool.push(p.name);
   });
+
+  // Pool juga diacak supaya slot tiket tidak terkumpul per nama.
+  ticketPool = shuffleArray(ticketPool);
 }
 
 function consumeTicket(name) {
@@ -171,13 +212,15 @@ function renderTable() {
   document.getElementById('table-note').textContent =
     `${active} peserta aktif · ${totalPool} tiket tersisa`;
 
-  // Sort: by current tickets desc, then original desc
-  const sorted = [...participants].sort((a, b) => b.tickets - a.tickets || b.original - a.original);
+  // Sort visual acak/stabil, bukan berdasarkan tiket.
+  // Jadi daftar tidak selalu menampilkan peserta dengan tiket terbesar di atas.
+  const sorted = [...participants].sort((a, b) => (a.randomOrder ?? 0) - (b.randomOrder ?? 0));
+  const maxTickets = Math.max(...participants.map(p => p.tickets), 0);
 
   tbody.innerHTML = sorted.map((p, i) => {
     const pct  = totalPool > 0 ? ((p.tickets / totalPool) * 100).toFixed(2) : '0.00';
-    const barW = totalPool > 0 && sorted[0].tickets > 0
-      ? Math.min((p.tickets / sorted[0].tickets) * 100, 100) : 0;
+    const barW = totalPool > 0 && maxTickets > 0
+      ? Math.min((p.tickets / maxTickets) * 100, 100) : 0;
     const used = p.original - p.tickets;
     const dimClass = p.tickets === 0 ? ' class="row-empty"' : '';
     const winCount = winners.filter(w => w.name === p.name).length;
@@ -297,7 +340,7 @@ async function drawSequence(total, idx) {
 
 function pickWeightedWinner() {
   if (ticketPool.length === 0) return null;
-  return ticketPool[Math.floor(Math.random() * ticketPool.length)];
+  return ticketPool[randomInt(ticketPool.length)];
 }
 
 // ── Winner Reveal ─────────────────────────────────────
@@ -337,7 +380,7 @@ function dismissReveal() {
 function buildWheelSegments() {
   const active = participants
     .filter(p => p.tickets > 0)
-    .sort((a, b) => b.tickets - a.tickets || a.name.localeCompare(b.name));
+    .sort((a, b) => (a.randomOrder ?? 0) - (b.randomOrder ?? 0));
 
   const total = active.reduce((sum, p) => sum + p.tickets, 0);
   let angle = -Math.PI / 2;
@@ -352,7 +395,7 @@ function buildWheelSegments() {
       start: angle,
       end: angle + size,
       size,
-      color: WHEEL_COLORS[i % WHEEL_COLORS.length]
+      color: WHEEL_COLORS[(p.colorIndex ?? i) % WHEEL_COLORS.length]
     };
     seg.mid = seg.start + (seg.size / 2);
     angle += size;
@@ -640,10 +683,24 @@ function highlightWinnerRows() {
   });
 }
 
+// ── Shuffle Visual Order ──────────────────────────────
+function shuffleVisualOrder() {
+  if (rolling || participants.length === 0) return;
+
+  participants = randomizeVisualOrder(participants);
+  rebuildPool();
+  renderStats();
+  renderTable();
+  renderWheel();
+  highlightWinnerRows();
+}
+
 // ── Reset ─────────────────────────────────────────────
 function resetDraw() {
-  // Restore original tickets
-  participants.forEach(p => { p.tickets = p.original; });
+  // Restore original tickets dan acak ulang urutan visual saat reset.
+  participants = randomizeVisualOrder(
+    participants.map(p => ({ ...p, tickets: p.original }))
+  );
   winners = [];
   rolling = false;
 
