@@ -148,15 +148,21 @@ function cleanName(val) {
 }
 
 function calcTickets(row, firstCol, lastCol) {
-  let deposits = 0, streak = 0, bonus5 = 0, bonus10 = 0;
+  let deposits = 0, streak = 0;
+  let ac_count = 0, ad_count = 0; // Lark formula logic
+
   for (let c = firstCol; c <= lastCol; c++) {
     if (Number(row[c]) === 1) {
-      deposits++; streak++;
-      if (streak === 5) bonus5++;
-      if (streak === 10) bonus10++;
-    } else streak = 0;
+      deposits++;
+      streak++;
+      if (streak % 10 === 0) ad_count++;           // hits multiple of 10 → x10 bonus
+      else if (streak % 5 === 0) ac_count++;        // hits multiple of 5 (not 10) → x5 bonus
+    } else {
+      streak = 0;
+    }
   }
-  const bonus = (bonus5 * 5) + (bonus10 * 20);
+
+  const bonus = (Math.min(3, ac_count) * 5) + (Math.min(2, ad_count) * 20);
   return { deposits, bonus, total: deposits + bonus };
 }
 
