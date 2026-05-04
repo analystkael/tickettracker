@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   Raffle Draw — script.js  v6.1
+   Community Reward — script.js  v6.1
    - Self-calculates from "List Ticket" sheet
    - Winner loses 1 ticket per win (can win again if > 0)
    - Table updates live after each draw
@@ -216,7 +216,7 @@ function renderTable() {
   const active = participants.filter(p => p.tickets > 0).length;
 
   document.getElementById('table-note').textContent =
-    `${active} peserta aktif · ${totalPool} tiket tersisa`;
+    `${active} peserta aktif · ${totalPool} poin tersisa`;
 
   // Sort visual acak/stabil, bukan berdasarkan tiket.
   // Jadi daftar tidak selalu menampilkan peserta dengan tiket terbesar di atas.
@@ -236,7 +236,7 @@ function renderTable() {
         <td>${i + 1}</td>
         <td>
           ${escHtml(p.name)}
-          ${winCount > 0 ? '<span class="win-badge">' + winCount + 'x win</span>' : ''}
+          ${winCount > 0 ? '<span class="win-badge">' + winCount + 'x terpilih</span>' : ''}
         </td>
         <td>
           <span class="ticket-current">${p.tickets}</span><span class="ticket-original">/${p.original}</span>
@@ -260,7 +260,7 @@ function escHtml(s) {
 
 function enableDraw() {
   document.getElementById('draw-btn').disabled = false;
-  document.getElementById('draw-btn-text').textContent = 'Spin Wheel!';
+  document.getElementById('draw-btn-text').textContent = 'Pilih Penerima!';
 }
 
 function changeWinnerCount(delta) {
@@ -274,7 +274,7 @@ function startDraw() {
   if (rolling || ticketPool.length === 0) return;
 
   if (ticketPool.length === 0) {
-    alert('Semua tiket sudah habis! Reset untuk draw ulang.');
+    alert('Semua poin sudah habis! Reset untuk memilih ulang.');
     return;
   }
 
@@ -282,7 +282,7 @@ function startDraw() {
   const btn = document.getElementById('draw-btn');
   btn.disabled = true;
   btn.classList.add('rolling');
-  document.getElementById('draw-btn-text').textContent = 'Spinning…';
+  document.getElementById('draw-btn-text').textContent = 'Memilih…';
 
   showWheel();
   drawSequence(winnerCount, 0);
@@ -301,9 +301,9 @@ async function drawSequence(total, idx) {
 
     if (ticketPool.length > 0) {
       btn.disabled = false;
-      document.getElementById('draw-btn-text').textContent = 'Spin Lagi!';
+      document.getElementById('draw-btn-text').textContent = 'Pilih Lagi!';
     } else {
-      document.getElementById('draw-btn-text').textContent = 'Tiket Habis';
+      document.getElementById('draw-btn-text').textContent = 'Poin Habis';
       btn.disabled = true;
     }
 
@@ -355,11 +355,11 @@ function showReveal(name, rank, remaining, ticketsBefore = 0, chanceBefore = 0) 
   const p = participants.find(x => x.name === name);
   const orig = p ? p.original : 0;
 
-  document.getElementById('reveal-tag').textContent = 'PEMENANG #' + rank;
+  document.getElementById('reveal-tag').textContent = 'PENERIMA #' + rank;
   document.getElementById('reveal-medal').textContent = medals[rank - 1] || '🏆';
   document.getElementById('reveal-name').textContent = name;
   document.getElementById('reveal-info').textContent =
-    ticketsBefore + ' tiket saat draw · peluang ' + chanceBefore.toFixed(2) + '% · sisa ' + remaining + '/' + orig;
+    ticketsBefore + ' poin saat pemilihan · peluang ' + chanceBefore.toFixed(2) + '% · sisa ' + remaining + '/' + orig;
 
   const el = document.getElementById('reveal');
   el.classList.add('visible');
@@ -422,12 +422,12 @@ function renderWheel() {
   const total = ticketPool.length;
   const active = participants.filter(p => p.tickets > 0).length;
   const status = document.getElementById('wheel-status');
-  if (status) status.textContent = active + ' peserta · ' + total.toLocaleString('id-ID') + ' tiket';
+  if (status) status.textContent = active + ' peserta · ' + total.toLocaleString('id-ID') + ' poin';
 
   if (!rolling) {
     const selected = document.getElementById('wheel-selected');
     if (selected) {
-      selected.innerHTML = `<span>Status</span><strong>Siap di-spin</strong><small>Irisan roda mengikuti tiket aktif saat ini.</small>`;
+      selected.innerHTML = `<span>Status</span><strong>Siap dipilih</strong><small>Irisan mengikuti poin aktif saat ini.</small>`;
     }
   }
 }
@@ -470,7 +470,7 @@ function drawWheel(rotation = wheelRotation) {
     ctx.fillStyle = '#9ba2b4';
     ctx.font = '600 16px Instrument Sans, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Menunggu data tiket', cx, cy - 8);
+    ctx.fillText('Menunggu data poin', cx, cy - 8);
     ctx.font = '12px Space Mono, monospace';
     ctx.fillText('TICKET_TRACKER.xlsx', cx, cy + 14);
     return;
@@ -502,7 +502,7 @@ function drawWheel(rotation = wheelRotation) {
       ctx.fillText(name, radius - 20, 0);
       if (seg.size > 0.20) {
         ctx.font = '700 10px Space Mono, monospace';
-        ctx.fillText(seg.tickets + ' tiket', radius - 20, 14);
+        ctx.fillText(seg.tickets + ' poin', radius - 20, 14);
       }
       ctx.restore();
     }
@@ -580,7 +580,7 @@ function spinWheelToWinner(name) {
 
       const current = segmentUnderPointer(wheelRotation);
       if (selected && current) {
-        selected.innerHTML = `<span>Rolling…</span><strong>${escHtml(current.name)}</strong><small>${current.tickets} tiket · ${current.percent.toFixed(2)}%</small>`;
+        selected.innerHTML = `<span>Memilih…</span><strong>${escHtml(current.name)}</strong><small>${current.tickets} poin · ${current.percent.toFixed(2)}%</small>`;
       }
 
       if (t < 1) {
@@ -589,7 +589,7 @@ function spinWheelToWinner(name) {
         wheelRotation = normalizeAngle(end);
         drawWheel(wheelRotation);
         if (selected) {
-          selected.innerHTML = `<span>Terpilih</span><strong>${escHtml(name)}</strong><small>${seg.tickets} tiket · peluang ${seg.percent.toFixed(2)}%</small>`;
+          selected.innerHTML = `<span>Terpilih</span><strong>${escHtml(name)}</strong><small>${seg.tickets} poin · peluang ${seg.percent.toFixed(2)}%</small>`;
         }
         resolve();
       }
@@ -671,9 +671,9 @@ function renderWinners() {
         <div class="winner-rank">${medals[i] || '🏆'}</div>
         <div class="winner-info">
           <div class="winner-name">${escHtml(w.name)}</div>
-          <div class="winner-meta">Draw #${i + 1}</div>
+          <div class="winner-meta">Seleksi #${i + 1}</div>
         </div>
-        <div class="winner-trophy">🎉</div>
+        <div class="winner-trophy">⭐</div>
       </div>`;
   }).join('');
 
@@ -725,7 +725,7 @@ function resetDraw() {
   const btn = document.getElementById('draw-btn');
   btn.disabled = false;
   btn.classList.remove('rolling');
-  document.getElementById('draw-btn-text').textContent = 'Spin Wheel!';
+  document.getElementById('draw-btn-text').textContent = 'Pilih Penerima!';
 }
 
 // ── Confetti ──────────────────────────────────────────
@@ -736,8 +736,8 @@ function launchConfetti() {
   canvas.width  = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  const COLORS = ['#22d68a','#f0c645','#ffffff','#3be8b0','#5b8df0','#f05545'];
-  const pieces = Array.from({ length: 150 }, () => ({
+  const COLORS = ['#22d68a','#3be8b0','#ffffff','#9ba2b4'];
+  const pieces = Array.from({ length: 50 }, () => ({
     x: Math.random() * canvas.width,
     y: -10 - Math.random() * 300,
     r: 3 + Math.random() * 5,
@@ -749,7 +749,7 @@ function launchConfetti() {
   }));
 
   let frame = 0;
-  const TOTAL = 220;
+  const TOTAL = 120;
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);

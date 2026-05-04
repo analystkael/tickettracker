@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>KAEL · Raffle Draw</title>
+  <title>KAEL · Community Reward</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
@@ -19,7 +19,7 @@
   <!-- Winner Reveal Overlay -->
   <div class="reveal" id="reveal" onclick="dismissReveal()">
     <div class="reveal-content">
-      <div class="reveal-tag" id="reveal-tag">PEMENANG #1</div>
+      <div class="reveal-tag" id="reveal-tag">PENERIMA #1</div>
       <div class="reveal-medal" id="reveal-medal">🥇</div>
       <div class="reveal-name" id="reveal-name">Nama</div>
       <div class="reveal-info" id="reveal-info">4 tiket · peluang 3.74%</div>
@@ -34,14 +34,14 @@
     </div>
     <div class="topbar-right">
       <span class="live-dot"></span>
-      <span class="live-text">LIVE DRAW</span>
+      <span class="live-text">COMMUNITY LIVE</span>
     </div>
   </nav>
 
   <header>
-    <p class="header-tag">Community Raffle Event</p>
-    <h1>Deposit. Streak. <span class="h1-accent">Win.</span></h1>
-    <p class="header-sub">Setiap deposit harian = 1 tiket &nbsp;·&nbsp; Streak 5 hari = +5 bonus &nbsp;·&nbsp; Streak 10 hari = +20 bonus</p>
+    <p class="header-tag">Community Reward Event</p>
+    <h1>Deposit. Streak. <span class="h1-accent">Reward.</span></h1>
+    <p class="header-sub">Setiap deposit harian = 1 poin &nbsp;·&nbsp; Streak 5 hari = +5 bonus &nbsp;·&nbsp; Streak 10 hari = +20 bonus</p>
   </header>
 
   <main>
@@ -62,7 +62,7 @@
         </span>
         <div class="stat-data">
           <div class="stat-num" id="stat-tiket">—</div>
-          <div class="stat-label">Total Tiket</div>
+          <div class="stat-label">Total Poin</div>
         </div>
       </div>
       <div class="stat-card">
@@ -80,7 +80,7 @@
       <div class="draw-panel-inner">
         <div class="draw-left">
           <div class="control-row">
-            <span class="control-label">Jumlah Pemenang</span>
+            <span class="control-label">Jumlah Penerima</span>
             <div class="stepper">
               <button class="step-btn" onclick="changeWinnerCount(-1)" aria-label="Kurangi">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -108,8 +108,8 @@
       <div class="wheel-card">
         <div class="wheel-head">
           <div>
-            <h2 class="section-title">Spin Wheel</h2>
-            <p class="wheel-sub">Ukuran irisan roda mengikuti jumlah tiket. Makin banyak tiket, makin besar area dan makin besar peluang menang.</p>
+            <h2 class="section-title">Pemilihan Acak</h2>
+            <p class="wheel-sub">Ukuran irisan mengikuti jumlah poin. Makin banyak poin, makin besar area dan makin besar peluang terpilih.</p>
           </div>
           <div class="wheel-status" id="wheel-status">Memuat roda…</div>
         </div>
@@ -120,7 +120,7 @@
             <canvas id="wheel-canvas" width="520" height="520" aria-label="Weighted spin wheel"></canvas>
             <div class="wheel-center">
               <span>KAEL</span>
-              <small>WEIGHTED</small>
+              <small>RANDOM</small>
             </div>
           </div>
 
@@ -129,7 +129,7 @@
               <span>Status</span>
               <strong>Menunggu data…</strong>
             </div>
-            <div class="wheel-mini-title">Peluang Terbesar</div>
+            <div class="wheel-mini-title">Poin Terbanyak</div>
             <div class="wheel-legend" id="wheel-legend"></div>
           </aside>
         </div>
@@ -137,14 +137,14 @@
     </section>
     <section class="drum-section" id="drum-section">
       <div class="drum">
-        <div class="drum-label">SELECTING</div>
+        <div class="drum-label">MEMILIH</div>
         <div class="drum-name" id="drum-name">???</div>
         <div class="drum-bar"><div class="drum-bar-fill"></div></div>
       </div>
     </section>
 
     <section class="winners-section" id="winners-section">
-      <h2 class="section-title">Pemenang</h2>
+      <h2 class="section-title">Penerima Hadiah</h2>
       <div class="winners-list" id="winners-list"></div>
     </section>
 
@@ -175,7 +175,7 @@
   <footer>
     <span class="footer-brand">KAEL</span>
     <span class="footer-sep">·</span>
-    <span>Community Raffle System</span>
+    <span>Community Reward System</span>
   </footer>
 
   <script src="script.js"></script>
