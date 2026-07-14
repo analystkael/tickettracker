@@ -158,9 +158,9 @@
           <thead>
             <tr>
               <th class="col-rank">#</th>
-              <th class="col-name">Nama</th>
-              <th class="col-ticket">Tiket</th>
-              <th class="col-prob">Peluang</th>
+              <th class="col-name sortable" onclick="handleHeaderClick('name')">Nama <span id="sort-icon-name" class="sort-indicator"></span></th>
+              <th class="col-ticket sortable" onclick="handleHeaderClick('tickets')">Tiket <span id="sort-icon-tickets" class="sort-indicator"></span></th>
+              <th class="col-prob sortable" onclick="handleHeaderClick('tickets')">Peluang <span id="sort-icon-prob" class="sort-indicator"></span></th>
             </tr>
           </thead>
           <tbody id="table-body">

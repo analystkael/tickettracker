@@ -15,6 +15,8 @@ let rolling      = false;
 let revealResolve = null;
 let wheelSegments = [];
 let wheelRotation = 0;
+let sortKey      = 'tickets'; // 'tickets', 'name', 'random'
+let sortDir      = 'desc';    // 'desc', 'asc'
 
 const WHEEL_COLORS = [
   '#22d68a', '#f0c645', '#5b8df0', '#f05545', '#a855f7', '#14b8a6',
@@ -84,6 +86,13 @@ function showError(msg) {
 }
 
 // ── Parse Workbook ────────────────────────────────────
+function isDayName(val) {
+  if (!val) return false;
+  const s = String(val).trim().toLowerCase();
+  const days = ['sel', 'rab', 'kamis', 'kam', 'jum', 'sen', 'sab', 'min', 'tue', 'wed', 'thu', 'fri', 'mon', 'sat', 'sun'];
+  return days.includes(s);
+}
+
 function parseWorkbook(wb) {
   let sheetName = wb.SheetNames[0];
   if (wb.SheetNames.includes('List Ticket')) sheetName = 'List Ticket';
@@ -92,15 +101,30 @@ function parseWorkbook(wb) {
   const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
 
   const headerRow  = raw[1] || [];
-  let firstDateCol = -1, lastDateCol = -1;
+  let firstDateCol = 2; // Default to Column C (index 2)
+  let lastDateCol = 2;
 
+  // Find the first date column by searching for a date serial number in row 2
   for (let c = 2; c < headerRow.length; c++) {
     const hdr = headerRow[c];
     if (typeof hdr === 'number' && hdr > 40000 && hdr < 60000) {
-      if (firstDateCol === -1) firstDateCol = c;
-      lastDateCol = c;
+      firstDateCol = c;
+      break;
     }
   }
+
+  // Find the last date column by checking day names in row 3 (raw[2])
+  const dayRow = raw[2] || [];
+  for (let c = firstDateCol; c < dayRow.length; c++) {
+    const dayVal = dayRow[c];
+    if (isDayName(dayVal)) {
+      lastDateCol = c;
+    } else {
+      break;
+    }
+  }
+
+  console.log('[Raffle] Date columns identified:', firstDateCol, 'to', lastDateCol);
 
   if (firstDateCol === -1 || lastDateCol === -1) {
     showError('⚠️ Kolom tanggal tidak ditemukan.');
@@ -152,7 +176,7 @@ function calcTickets(row, firstCol, lastCol) {
   let ac_count = 0, ad_count = 0; // Lark formula logic
 
   for (let c = firstCol; c <= lastCol; c++) {
-    if (Number(row[c]) === 1) {
+    if (Number(row[c]) >= 1) {
       deposits++;
       streak++;
       if (streak % 10 === 0) ad_count++;           // hits multiple of 10 → x10 bonus
@@ -218,9 +242,42 @@ function renderTable() {
   document.getElementById('table-note').textContent =
     `${active} peserta aktif · ${totalPool} poin tersisa`;
 
-  // Sort visual acak/stabil, bukan berdasarkan tiket.
-  // Jadi daftar tidak selalu menampilkan peserta dengan tiket terbesar di atas.
-  const sorted = [...participants].sort((a, b) => (a.randomOrder ?? 0) - (b.randomOrder ?? 0));
+  // Update header indicators
+  const iconName = document.getElementById('sort-icon-name');
+  const iconTickets = document.getElementById('sort-icon-tickets');
+  const iconProb = document.getElementById('sort-icon-prob');
+
+  if (iconName && iconTickets && iconProb) {
+    iconName.textContent = '';
+    iconTickets.textContent = '';
+    iconProb.textContent = '';
+
+    if (sortKey === 'name') {
+      iconName.textContent = sortDir === 'desc' ? '▼' : '▲';
+    } else if (sortKey === 'tickets') {
+      iconTickets.textContent = sortDir === 'desc' ? '▼' : '▲';
+      iconProb.textContent = sortDir === 'desc' ? '▼' : '▲';
+    }
+  }
+
+  // Sorting logic based on sortKey and sortDir
+  const sorted = [...participants];
+  if (sortKey === 'tickets') {
+    sorted.sort((a, b) => {
+      if (a.tickets !== b.tickets) {
+        return sortDir === 'desc' ? b.tickets - a.tickets : a.tickets - b.tickets;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  } else if (sortKey === 'name') {
+    sorted.sort((a, b) => {
+      return sortDir === 'desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
+    });
+  } else {
+    // sortKey === 'random'
+    sorted.sort((a, b) => (a.randomOrder ?? 0) - (b.randomOrder ?? 0));
+  }
+
   const maxTickets = Math.max(...participants.map(p => p.tickets), 0);
 
   tbody.innerHTML = sorted.map((p, i) => {
@@ -251,6 +308,19 @@ function renderTable() {
         </td>
       </tr>`;
   }).join('');
+}
+
+function handleHeaderClick(key) {
+  if (rolling) return;
+
+  if (sortKey === key) {
+    sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    sortKey = key;
+    sortDir = key === 'name' ? 'asc' : 'desc';
+  }
+
+  renderTable();
 }
 
 function sanitize(name) { return name.replace(/[^a-z0-9]/gi, '_'); }
@@ -693,6 +763,7 @@ function highlightWinnerRows() {
 function shuffleVisualOrder() {
   if (rolling || participants.length === 0) return;
 
+  sortKey = 'random';
   participants = randomizeVisualOrder(participants);
   rebuildPool();
   renderStats();
@@ -709,6 +780,8 @@ function resetDraw() {
   );
   winners = [];
   rolling = false;
+  sortKey = 'tickets';
+  sortDir = 'desc';
 
   rebuildPool();
 

@@ -852,6 +852,24 @@ thead th {
   white-space: nowrap;
 }
 
+thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+thead th.sortable:hover {
+  background: var(--border-h);
+  color: var(--white);
+}
+
+.sort-indicator {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 9px;
+  color: var(--accent);
+}
+
 .col-rank  { width: 52px; text-align: center; }
 .col-ticket { width: 88px; text-align: center; }
 

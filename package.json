@@ -1,0 +1,14 @@
+{
+  "name": "kael-raffle",
+  "version": "1.0.0",
+  "description": "KAEL Community Reward Raffle System",
+  "scripts": {
+    "dev": "http-server -o -c-1"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
